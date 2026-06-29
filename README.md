@@ -5,7 +5,7 @@
 
 [![Solana](https://img.shields.io/badge/Solana-362D59?style=for-the-badge&logo=solana&logoColor=white)](https://solana.com)
 [![Node.js](https://img.shields.io/badge/Node.js-43853D?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue?style=for-the-badge)](https://huggingface.co/)
+[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue?style=for-the-badge)](https://huggingface.co/spaces/karidasd/solana-sniper-bot)
 
 </div>
 
@@ -17,6 +17,8 @@
 
 ## 📖 Overview
 **Elite Solana Sniper Bot** is a blazing-fast, automated trading system designed specifically for the Solana blockchain. It actively monitors new token launches (primarily on **Pump.fun**) and executes high-speed sniper trades. 
+
+👉 **[View Live Demo on Hugging Face](https://huggingface.co/spaces/karidasd/solana-sniper-bot)** 👈
 
 What sets this bot apart is its **Professional Web UI Dashboard**, which allows you to monitor your wallet, daily PnL, active positions, and trade history in real-time, from any device.
 
