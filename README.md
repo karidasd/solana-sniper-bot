@@ -9,6 +9,10 @@
 
 </div>
 
+<p align="center">
+  <img src="preview.png" alt="Elite Sniper Dashboard" width="800"/>
+</p>
+
 ---
 
 ## 📖 Overview
