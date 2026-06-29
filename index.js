@@ -57,6 +57,21 @@ trader.appState = AppState;
 
 // --- API ROUTES ---
 
+// Authentication Middleware
+function requireAuth(req, res, next) {
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if (!adminPassword) {
+        // Αν δεν έχει οριστεί κωδικός, επιτρέπουμε την πρόσβαση (ή μπορούμε να την μπλοκάρουμε)
+        return next();
+    }
+    
+    const authHeader = req.headers['authorization'];
+    if (!authHeader || authHeader !== adminPassword) {
+        return res.status(401).json({ success: false, message: 'Unauthorized: Invalid or missing password' });
+    }
+    next();
+}
+
 app.get('/api/status', (req, res) => {
     // Αφαιρούμε το intervalId γιατί είναι circular object (Timeout) και "σκάει" το JSON.stringify
     const safePositions = AppState.activePositions.map(pos => ({
@@ -88,7 +103,7 @@ app.get('/api/status', (req, res) => {
     });
 });
 
-app.post('/api/start', (req, res) => {
+app.post('/api/start', requireAuth, (req, res) => {
     if (!isRunning) {
         console.log("[SERVER] Εντολή εκκίνησης από το UI...");
         monitor.startMonitoring((tokenSignature) => {
@@ -101,7 +116,7 @@ app.post('/api/start', (req, res) => {
     }
 });
 
-app.post('/api/stop', (req, res) => {
+app.post('/api/stop', requireAuth, (req, res) => {
     if (isRunning) {
         console.log("[SERVER] Εντολή τερματισμού από το UI...");
         monitor.stopMonitoring();
@@ -117,21 +132,21 @@ app.get('/api/logs', (req, res) => {
     res.json({ logs });
 });
 
-app.post('/api/panic-sell', async (req, res) => {
+app.post('/api/panic-sell', requireAuth, async (req, res) => {
     const { tokenAddress } = req.body;
     console.log(`[SERVER] 🚨 PANIC SELL ΖΗΤΗΘΗΚΕ ΓΙΑ ΤΟ: ${tokenAddress}`);
     await trader.panicSell(tokenAddress);
     res.json({ success: true });
 });
 
-app.post('/api/sell-half', async (req, res) => {
+app.post('/api/sell-half', requireAuth, async (req, res) => {
     const { tokenAddress } = req.body;
     console.log(`[SERVER] ⚖️ SCALE OUT (50%) ΖΗΤΗΘΗΚΕ ΓΙΑ ΤΟ: ${tokenAddress}`);
     await trader.sellHalf(tokenAddress);
     res.json({ success: true });
 });
 
-app.post('/api/config', (req, res) => {
+app.post('/api/config', requireAuth, (req, res) => {
     const {
         buyAmount, maxCapital, paperTrading,
         takeProfit1, takeProfit2, stopLoss,

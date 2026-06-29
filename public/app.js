@@ -22,6 +22,58 @@ const chartTitleEl      = document.getElementById('chart-title');
 const soundSnipe        = document.getElementById('sound-snipe');
 const soundProfit       = document.getElementById('sound-profit');
 
+// ─── Auth ──────────────────────────────────────────────────────────────────
+function getAdminPassword() { return localStorage.getItem('adminPassword') || ''; }
+function promptForPassword() {
+    const pwd = prompt("Enter Admin Password to perform this action:");
+    if (pwd) {
+        localStorage.setItem('adminPassword', pwd);
+        updateLoginBtn();
+        return pwd;
+    }
+    return null;
+}
+function updateLoginBtn() {
+    const loginBtn = document.getElementById('loginBtn');
+    if (!loginBtn) return;
+    if (localStorage.getItem('adminPassword')) {
+        loginBtn.textContent = '🔒 Logout';
+        loginBtn.style.color = 'var(--green)';
+    } else {
+        loginBtn.textContent = '🔑 Login';
+        loginBtn.style.color = 'var(--text-primary)';
+    }
+}
+document.getElementById('loginBtn')?.addEventListener('click', () => {
+    if (localStorage.getItem('adminPassword')) {
+        localStorage.removeItem('adminPassword');
+        updateLoginBtn();
+        showToast('Logged out.', 'info');
+    } else {
+        promptForPassword();
+    }
+});
+updateLoginBtn();
+
+async function authFetch(url, options = {}) {
+    let pwd = getAdminPassword();
+    if (!pwd) {
+        pwd = promptForPassword();
+        if (!pwd) return { ok: false, status: 401, json: async () => ({ success: false, message: 'Password required' }) };
+    }
+    if (!options.headers) options.headers = {};
+    options.headers['Authorization'] = pwd;
+    
+    const res = await fetch(url, options);
+    if (res.status === 401) {
+        showToast('❌ Wrong Password!', 'loss');
+        localStorage.removeItem('adminPassword');
+        updateLoginBtn();
+        return { ok: false, status: 401, json: async () => ({ success: false, message: 'Wrong password' }) };
+    }
+    return res;
+}
+
 // ─── State ─────────────────────────────────────────────────────────────────
 let isRunning          = false;
 let prevPnL            = 0;
@@ -304,14 +356,16 @@ async function fetchLogs() {
 // ─── Buttons ───────────────────────────────────────────────────────────────
 startBtn.addEventListener('click', async () => {
     startBtn.disabled = true; startBtn.textContent = '⏳ Starting...';
-    await fetch('/api/start', { method: 'POST' });
+    const res = await authFetch('/api/start', { method: 'POST' });
+    if (!res.ok) { updateStatus(); return; }
     appendLog('▶ Bot started — Monitoring Pump.fun for new tokens...', 'text-green');
     showToast('🚀 Sniper Online!', 'info');
     updateStatus();
 });
 
 stopBtn.addEventListener('click', async () => {
-    await fetch('/api/stop', { method: 'POST' });
+    const res = await authFetch('/api/stop', { method: 'POST' });
+    if (!res.ok) return;
     appendLog('■ Bot stopped.', 'text-red');
     showToast('🛑 Bot stopped.', 'loss');
     updateStatus();
@@ -337,7 +391,7 @@ document.getElementById('saveConfigBtn').addEventListener('click', async () => {
         paperTrading:       document.getElementById('paperTrading').checked,
         requireSocials:     document.getElementById('requireSocials').checked,
     };
-    const res = await fetch('/api/config', {
+    const res = await authFetch('/api/config', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config)
     });
@@ -346,12 +400,12 @@ document.getElementById('saveConfigBtn').addEventListener('click', async () => {
 });
 
 async function panicSell(tokenAddress) {
-    appendLog(`🚨 PANIC SELL: ${tokenAddress.substring(0,8)}...`, 'text-red');
-    await fetch('/api/panic-sell', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tokenAddress }) });
+    const res = await authFetch('/api/panic-sell', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tokenAddress }) });
+    if (res.ok) appendLog(`🚨 PANIC SELL: ${tokenAddress.substring(0,8)}...`, 'text-red');
 }
 async function sellHalf(tokenAddress) {
-    appendLog(`⚖️ Scale-out 50%: ${tokenAddress.substring(0,8)}...`, 'text-yellow');
-    await fetch('/api/sell-half', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tokenAddress }) });
+    const res = await authFetch('/api/sell-half', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tokenAddress }) });
+    if (res.ok) appendLog(`⚖️ Scale-out 50%: ${tokenAddress.substring(0,8)}...`, 'text-yellow');
 }
 
 function updateButtons() {
