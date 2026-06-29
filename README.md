@@ -73,7 +73,10 @@ This project is configured to run 24/7 on Hugging Face Spaces for free.
 4. Your bot is now live and accessible from anywhere!
 
 ## ⚠️ Disclaimer
-**This software is for educational purposes only.** Cryptocurrency trading is highly volatile and risky. The developers are not responsible for any financial losses incurred while using this bot. Never use funds you cannot afford to lose, and never share your private keys.
+**This software is for educational purposes only.** Cryptocurrency trading is highly volatile and extremely risky.
+> **The 90/90/90 Rule:** 90% of new traders lose 90% of their money in the first 90 days.
+
+The developers are not responsible for any financial losses incurred while using this bot. Never use funds you cannot afford to lose, and never share your private keys.
 
 ---
 <div align="center">
