@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Elite Sniper Exchange — God Mode</title>
+    <meta name="description" content="Professional Solana Sniper Bot — Real price tracking, multi-level TP, trailing stop.">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body class="pro-exchange">
+    <audio id="sound-snipe"  src="https://cdn.pixabay.com/download/audio/2021/08/04/audio_0625c1539c.mp3"  preload="auto"></audio>
+    <audio id="sound-profit" src="https://cdn.pixabay.com/download/audio/2021/08/09/audio_8fae1f3f98.mp3" preload="auto"></audio>
+
+    <div class="exchange-layout">
+
+        <!-- ── HEADER ─────────────────────────────────────────────── -->
+        <header class="ex-header">
+            <div class="logo">
+                <span class="pulse-dot" id="connectionDot"></span>
+                <h1>ELITE <span class="accent">SNIPER</span> <span class="god-badge">⚡ GOD MODE</span></h1>
+            </div>
+
+            <div class="header-stats">
+                <div class="stat-chip">
+                    <span class="stat-label">💼 Wallet</span>
+                    <span id="wallet-balance" class="stat-value accent-text">Loading...</span>
+                </div>
+                <div class="stat-chip">
+                    <span class="stat-label">📈 Daily PnL</span>
+                    <span id="daily-pnl" class="stat-value neutral">0.0000 SOL</span>
+                </div>
+                <div class="stat-chip">
+                    <span class="stat-label">💰 Capital</span>
+                    <span id="capital-display" class="stat-value neutral">0 / 0.1</span>
+                </div>
+                <div class="stat-chip">
+                    <span class="stat-label">🎯 Trades</span>
+                    <span id="trade-count" class="stat-value neutral">0</span>
+                </div>
+                <div class="stat-chip">
+                    <span class="stat-label">🏆 Win Rate</span>
+                    <span id="win-rate" class="stat-value neutral">—</span>
+                </div>
+            </div>
+
+            <div class="header-right">
+                <div class="mode-indicator" id="modeIndicator">📄 PAPER</div>
+                <div class="status-badge" id="botStatusBadge">OFFLINE</div>
+            </div>
+        </header>
+
+        <!-- ── LEFT: TERMINAL ─────────────────────────────────────── -->
+        <aside class="ex-left">
+            <div class="panel-header">
+                <span>⬛ System Terminal</span>
+                <button class="btn-clear" onclick="clearLogs()">✕</button>
+            </div>
+            <div class="terminal-body" id="logOutput">
+                <div class="log-line"><span class="log-time">[--:--:--]</span> <span class="text-blue">System ready. Waiting for start...</span></div>
+                <div class="log-line"><span class="log-time">[--:--:--]</span> <span class="text-yellow">⚡ Expert mode: Real prices · Multi-TP · Trailing SL</span></div>
+            </div>
+        </aside>
+
+        <!-- ── CENTER: CHART ──────────────────────────────────────── -->
+        <main class="ex-center">
+            <div class="panel-header chart-header">
+                <span id="chart-title">📊 Market Chart (SOL/USD)</span>
+                <div class="chart-tabs">
+                    <button class="chart-tab active" onclick="setChartToken('So11111111111111111111111111111111111111112','SOL/USD',this)">SOL</button>
+                    <button class="chart-tab" onclick="setChartToken('DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263','BONK',this)">BONK</button>
+                    <button class="chart-tab" onclick="setChartToken('EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm','WIF',this)">WIF</button>
+                </div>
+            </div>
+            <div class="chart-container">
+                <iframe id="dex-iframe" src="https://dexscreener.com/solana/So11111111111111111111111111111111111111112?embed=1&theme=dark&trades=0&info=0" frameborder="0"></iframe>
+            </div>
+        </main>
+
+        <!-- ── RIGHT: SETTINGS ────────────────────────────────────── -->
+        <aside class="ex-right">
+            <div class="panel-header">⚙️ Trading Setup</div>
+            <div class="order-entry-form">
+
+                <!-- Start/Stop -->
+                <div class="control-actions">
+                    <button id="startBtn" class="btn btn-buy">▶ START</button>
+                    <button id="stopBtn"  class="btn btn-sell" disabled>■ STOP</button>
+                </div>
+
+                <div class="divider"></div>
+                <div class="settings-section-title">💼 Capital</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Per Trade</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="buyAmount" step="0.001" value="0.01" min="0.001">
+                            <span class="suffix">SOL</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Max Budget</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="maxCapital" step="0.01" value="0.1" min="0.01">
+                            <span class="suffix">SOL</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+                <div class="settings-section-title">🎯 Exit Strategy</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>TP1 → 50%</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="takeProfit1" value="50" min="5">
+                            <span class="suffix">%</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>TP2 → 50%</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="takeProfit2" value="100" min="10">
+                            <span class="suffix">%</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Hard SL 🛑</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="stopLoss" value="25" min="1">
+                            <span class="suffix">%</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Auto-Sell ⏱</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="autoSellTimeoutSec" value="120" min="10">
+                            <span class="suffix">s</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+                <div class="settings-section-title">⚡ Trailing Stop</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Trail %</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="trailingStopLoss" value="20" min="5">
+                            <span class="suffix">%</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Activates at</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="trailingActivateAt" value="20" min="5">
+                            <span class="suffix">%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+                <div class="settings-section-title">🛡️ Entry Filters</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Min Liquidity</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="minLiquidity" value="5000">
+                            <span class="suffix">$</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Min Vol 5m</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="minVolume5m" value="500">
+                            <span class="suffix">$</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Min MC</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="minMarketCap" value="5000">
+                            <span class="suffix">$</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Max MC</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="maxMarketCap" value="2000000">
+                            <span class="suffix">$</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Max Pump</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="maxPumpPct" value="500">
+                            <span class="suffix">%</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Entry Delay</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="entryDelaySec" value="30">
+                            <span class="suffix">s</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Slippage Sim.</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="slippagePct" value="2.5" step="0.5">
+                            <span class="suffix">%</span>
+                        </div>
+                    </div>
+                    <div class="form-group" style="justify-content:flex-end; display:flex; align-items:flex-end;">
+                        <div class="form-checkbox">
+                            <label class="checkbox-container">
+                                <input type="checkbox" id="requireSocials">
+                                <span>Require Socials</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-checkbox">
+                    <label class="checkbox-container">
+                        <input type="checkbox" id="paperTrading" checked>
+                        <span class="text-yellow">📄 Paper Trading Mode</span>
+                    </label>
+                </div>
+
+                <button id="saveConfigBtn" class="btn btn-secondary">💾 Save Configuration</button>
+
+                <div class="divider"></div>
+                <div class="settings-section-title">📊 Session Stats</div>
+                <div class="mini-stats">
+                    <div class="mini-stat"><span class="ms-label">Open</span><span class="ms-value" id="stat-open">0</span></div>
+                    <div class="mini-stat"><span class="ms-label">Closed</span><span class="ms-value" id="stat-closed">0</span></div>
+                    <div class="mini-stat"><span class="ms-label">Best</span><span class="ms-value positive" id="stat-best">—</span></div>
+                    <div class="mini-stat"><span class="ms-label">Worst</span><span class="ms-value negative" id="stat-worst">—</span></div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ── BOTTOM: TABLES ─────────────────────────────────────── -->
+        <footer class="ex-bottom">
+            <div class="bottom-split">
+                <div class="bottom-panel-half">
+                    <div class="panel-header">🟢 Open Positions <span id="positions-count" class="count-badge">0</span></div>
+                    <div class="table-container">
+                        <table class="positions-table">
+                            <thead><tr>
+                                <th>Token</th><th>Size</th><th>Entry $</th><th>PnL%</th><th>Peak</th><th>Action</th>
+                            </tr></thead>
+                            <tbody id="positions-tbody">
+                                <tr><td colspan="6" class="empty-state">No open positions.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="bottom-panel-half">
+                    <div class="panel-header">📋 Trade History <span id="history-count" class="count-badge">0</span></div>
+                    <div class="table-container">
+                        <table class="positions-table">
+                            <thead><tr>
+                                <th>Token</th><th>Reason</th><th>PnL%</th><th>SOL Δ</th><th>Time</th>
+                            </tr></thead>
+                            <tbody id="history-tbody">
+                                <tr><td colspan="5" class="empty-state">No closed trades yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </footer>
+
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+    <script src="app.js"></script>
+</body>
+</html>
