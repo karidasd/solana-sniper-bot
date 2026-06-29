@@ -1,5 +1,5 @@
 import { CONFIG } from './config.js';
-import { Connection, Keypair, VersionedTransaction } from '@solana/web3.js';
+import { Connection, Keypair, VersionedTransaction, PublicKey } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { SafetyChecker } from './safety.js';
 
@@ -155,7 +155,8 @@ export class Trader {
             pnl: 0, maxPnl: 0,
             tp1Hit: false, tp2Hit: false,
             source: src,
-            intervalId: null
+            intervalId: null,
+            stopTracking: null // Νέο lock για τα recursive timeouts
         };
 
         if (this.appState) this.appState.activePositions.push(position);
@@ -172,12 +173,18 @@ export class Trader {
     trackPrice(tokenAddress, positionRef) {
         let elapsed       = 0;
         let failedFetches = 0;
-        const INTERVAL_MS = 20000; // 20 δευτερόλεπτα αντί 10 — μειώνει rate limit
+        const INTERVAL_MS = 20000;
+        let isStopped     = false;
 
-        // Random jitter 0-15s ώστε μα συγχρονισμένα requests
+        positionRef.stopTracking = () => {
+            isStopped = true;
+            if (positionRef.intervalId) clearTimeout(positionRef.intervalId);
+        };
+
         const jitter = Math.random() * 15000;
-        const startTracking = () => {
-        positionRef.intervalId = setInterval(async () => {
+        
+        const fetchCycle = async () => {
+            if (isStopped) return;
             elapsed += INTERVAL_MS / 1000;
 
             const data = await this.getTokenPrice(tokenAddress);
@@ -186,15 +193,15 @@ export class Trader {
                 positionRef.currentPrice = data.price;
                 positionRef.pnl = ((data.price - positionRef.entryPrice) / positionRef.entryPrice) * 100;
                 positionRef.source = data.source;
-                failedFetches = 0; // reset με κάθε επιτυχημένο fetch
+                failedFetches = 0;
 
                 if (positionRef.pnl > positionRef.maxPnl) positionRef.maxPnl = positionRef.pnl;
 
                 // Rug detection
                 if (positionRef.pnl < -85 && elapsed < 120) {
-                    clearInterval(positionRef.intervalId);
+                    positionRef.stopTracking();
                     console.log(`[TRACK] 🚨 RUG! ${positionRef.pnl.toFixed(1)}%`);
-                    this._closePosition(tokenAddress, positionRef, "🚨 Rug Detected"); return;
+                    await this._closePosition(tokenAddress, positionRef, "🚨 Rug Detected"); return;
                 }
 
                 const sign = positionRef.pnl >= 0 ? '+' : '';
@@ -202,67 +209,67 @@ export class Trader {
             } else {
                 failedFetches++;
                 console.log(`[TRACK] ⚠️ ${tokenAddress.substring(0,8)} — fetch failed (${failedFetches}/12)`);
-                // 12 failures × 20s = 4 λεπτά rate limit tolerance
                 if (failedFetches >= 12) {
-                    clearInterval(positionRef.intervalId);
+                    positionRef.stopTracking();
                     console.log(`[TRACK] 💀 Token εξαφανίστηκε. Rug/Dead.`);
-                    this._closePosition(tokenAddress, positionRef, "💀 Rug/Dead"); return;
+                    await this._closePosition(tokenAddress, positionRef, "💀 Rug/Dead"); return;
                 }
             }
 
             // ── EXIT CONDITIONS ─────────────────────────────────────────
-
             // TP1: Πούλα 50%
             if (!positionRef.tp1Hit && positionRef.pnl >= CONFIG.TAKE_PROFIT_1_PCT) {
                 positionRef.tp1Hit = true;
+                if (!this.isPaperTrading) await this.executeLiveSell(tokenAddress, 50);
                 const half   = positionRef.amount / 2;
                 const profit = half * (positionRef.pnl / 100);
                 positionRef.amount = half;
                 if (this.appState) this.appState.dailyPnL += profit;
                 console.log(`[TP1] 🎯 +${CONFIG.TAKE_PROFIT_1_PCT}%! Sell 50% | +${profit.toFixed(4)} SOL. Continuing...`);
                 this._logPartialClose(tokenAddress, positionRef, `TP1 +${CONFIG.TAKE_PROFIT_1_PCT}%`, profit);
-                return;
             }
-
             // TP2: Πούλα άλλο 50%
-            if (positionRef.tp1Hit && !positionRef.tp2Hit && positionRef.pnl >= CONFIG.TAKE_PROFIT_2_PCT) {
+            else if (positionRef.tp1Hit && !positionRef.tp2Hit && positionRef.pnl >= CONFIG.TAKE_PROFIT_2_PCT) {
                 positionRef.tp2Hit = true;
+                if (!this.isPaperTrading) await this.executeLiveSell(tokenAddress, 50);
                 const half   = positionRef.amount / 2;
                 const profit = half * (positionRef.pnl / 100);
                 positionRef.amount = half;
                 if (this.appState) this.appState.dailyPnL += profit;
                 console.log(`[TP2] 🎯 +${CONFIG.TAKE_PROFIT_2_PCT}%! Sell 50% | +${profit.toFixed(4)} SOL. Trailing stop now.`);
                 this._logPartialClose(tokenAddress, positionRef, `TP2 +${CONFIG.TAKE_PROFIT_2_PCT}%`, profit);
-                return;
             }
-
-            // Trailing Stop (ενεργό μόνο μετά από TRAILING_ACTIVATE_AT_PCT)
-            if (positionRef.maxPnl >= CONFIG.TRAILING_ACTIVATE_AT_PCT &&
+            // Trailing Stop
+            else if (positionRef.maxPnl >= CONFIG.TRAILING_ACTIVATE_AT_PCT &&
                 (positionRef.maxPnl - positionRef.pnl) >= CONFIG.TRAILING_STOP_LOSS_PERCENTAGE) {
-                clearInterval(positionRef.intervalId);
-                this._closePosition(tokenAddress, positionRef, `Trailing Stop (peak:+${positionRef.maxPnl.toFixed(1)}%)`); return;
+                positionRef.stopTracking();
+                await this._closePosition(tokenAddress, positionRef, `Trailing Stop (peak:+${positionRef.maxPnl.toFixed(1)}%)`); return;
             }
-
             // Hard Stop Loss
-            if (positionRef.pnl <= -CONFIG.STOP_LOSS_PERCENTAGE) {
-                clearInterval(positionRef.intervalId);
-                this._closePosition(tokenAddress, positionRef, `Stop Loss -${CONFIG.STOP_LOSS_PERCENTAGE}%`); return;
+            else if (positionRef.pnl <= -CONFIG.STOP_LOSS_PERCENTAGE) {
+                positionRef.stopTracking();
+                await this._closePosition(tokenAddress, positionRef, `Stop Loss -${CONFIG.STOP_LOSS_PERCENTAGE}%`); return;
             }
-
             // Auto-sell timeout
-            if (elapsed >= CONFIG.AUTO_SELL_TIMEOUT_SEC) {
-                clearInterval(positionRef.intervalId);
-                this._closePosition(tokenAddress, positionRef, `Timeout ${CONFIG.AUTO_SELL_TIMEOUT_SEC}s`); return;
+            else if (elapsed >= CONFIG.AUTO_SELL_TIMEOUT_SEC) {
+                positionRef.stopTracking();
+                await this._closePosition(tokenAddress, positionRef, `Timeout ${CONFIG.AUTO_SELL_TIMEOUT_SEC}s`); return;
             }
 
-        }, INTERVAL_MS);
-        }; // end startTracking
+            if (!isStopped) {
+                positionRef.intervalId = setTimeout(fetchCycle, INTERVAL_MS);
+            }
+        };
 
-        // Περιμένουμε το jitter πριν αρχίσει το interval
-        setTimeout(startTracking, jitter);
+        setTimeout(() => {
+            if (!isStopped) positionRef.intervalId = setTimeout(fetchCycle, INTERVAL_MS);
+        }, jitter);
     }
 
-    _closePosition(tokenAddress, positionRef, reason) {
+    async _closePosition(tokenAddress, positionRef, reason) {
+        if (!this.isPaperTrading) {
+            await this.executeLiveSell(tokenAddress, 100);
+        }
         const pnlAmount = positionRef.amount * (positionRef.pnl / 100);
         if (this.appState) this.appState.dailyPnL += pnlAmount;
         const emoji = positionRef.pnl > 0 ? '📈' : '📉';
@@ -282,15 +289,27 @@ export class Trader {
 
     async panicSell(tokenAddress) {
         const pos = this.appState?.activePositions.find(p => p.id === tokenAddress);
-        if (pos?.intervalId) clearInterval(pos.intervalId);
-        const pnlAmt = (pos?.amount || CONFIG.BUY_AMOUNT_SOL) * ((pos?.pnl || 0) / 100);
+        if (!pos) return;
+        if (pos.stopTracking) pos.stopTracking();
+
+        if (!this.isPaperTrading) {
+            await this.executeLiveSell(tokenAddress, 100);
+        }
+
+        const pnlAmt = (pos.amount || CONFIG.BUY_AMOUNT_SOL) * ((pos.pnl || 0) / 100);
         if (this.appState) this.appState.dailyPnL += pnlAmt;
-        this.removeAndLogPosition(tokenAddress, "🚨 Panic Sell", pos?.pnl || 0, pnlAmt);
+        this.removeAndLogPosition(tokenAddress, "🚨 Panic Sell", pos.pnl || 0, pnlAmt);
     }
 
     async sellHalf(tokenAddress) {
         const pos = this.appState?.activePositions.find(p => p.id === tokenAddress);
         if (!pos) return;
+
+        if (!this.isPaperTrading) {
+            const success = await this.executeLiveSell(tokenAddress, 50);
+            if (!success) return;
+        }
+
         const half   = pos.amount / 2;
         const profit = half * (pos.pnl / 100);
         if (this.appState) this.appState.dailyPnL += profit;
@@ -301,7 +320,8 @@ export class Trader {
     async executeLiveBuy(tokenAddress, position) {
         try {
             const amt = Math.floor(CONFIG.BUY_AMOUNT_SOL * 1_000_000_000);
-            const q   = await (await fetch(`https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${amt}&slippageBps=500`)).json();
+            const slippageBps = Math.floor(CONFIG.SLIPPAGE_SIMULATION_PCT * 100);
+            const q   = await (await fetch(`https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${amt}&slippageBps=${slippageBps}`)).json();
             if (!q || q.error) { this.removeAndLogPosition(tokenAddress, "No Liquidity", 0, 0); return; }
             const { swapTransaction } = await (await fetch('https://quote-api.jup.ag/v6/swap', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -310,11 +330,58 @@ export class Trader {
             const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, 'base64'));
             tx.sign([this.wallet]);
             const txid = await this.connection.sendRawTransaction(tx.serialize());
-            console.log(`[LIVE] ✅ https://solscan.io/tx/${txid}`);
+            console.log(`[LIVE] ✅ BUY SUCCESS: https://solscan.io/tx/${txid}`);
             this.trackPrice(tokenAddress, position);
         } catch(e) {
-            console.error(`[LIVE] ❌ ${e.message}`);
+            console.error(`[LIVE] ❌ Error (Buy): ${e.message}`);
             this.removeAndLogPosition(tokenAddress, "Buy Error", 0, 0);
+        }
+    }
+
+    async executeLiveSell(tokenAddress, percentage = 100) {
+        try {
+            console.log(`[LIVE] ⏳ Ετοιμασία πώλησης (${percentage}%) για ${tokenAddress}...`);
+            const mintPubkey = new PublicKey(tokenAddress);
+            const accounts = await this.connection.getParsedTokenAccountsByOwner(this.wallet.publicKey, { mint: mintPubkey });
+            
+            if (accounts.value.length === 0) {
+                console.log(`[LIVE] ❌ Δεν βρέθηκε token account για πώληση.`);
+                return false;
+            }
+
+            const tokenAmount = accounts.value[0].account.data.parsed.info.tokenAmount.amount;
+            if (tokenAmount === '0') {
+                console.log(`[LIVE] ❌ Το υπόλοιπο του token είναι 0.`);
+                return false;
+            }
+
+            let sellAmountStr = tokenAmount;
+            if (percentage < 100) {
+                const sellAmt = Math.floor(parseInt(tokenAmount, 10) * (percentage / 100));
+                sellAmountStr = sellAmt.toString();
+            }
+
+            const slippageBps = Math.floor(CONFIG.SLIPPAGE_SIMULATION_PCT * 100);
+            const q = await (await fetch(`https://quote-api.jup.ag/v6/quote?inputMint=${tokenAddress}&outputMint=So11111111111111111111111111111111111111112&amount=${sellAmountStr}&slippageBps=${slippageBps}`)).json();
+            
+            if (!q || q.error) { 
+                console.log(`[LIVE] ❌ Error στο Quote (Sell): ${q.error}`); 
+                return false; 
+            }
+
+            const { swapTransaction } = await (await fetch('https://quote-api.jup.ag/v6/swap', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ quoteResponse: q, userPublicKey: this.wallet.publicKey.toString(), wrapAndUnwrapSol: true })
+            })).json();
+
+            const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, 'base64'));
+            tx.sign([this.wallet]);
+            const txid = await this.connection.sendRawTransaction(tx.serialize());
+            console.log(`[LIVE] 💸 ΠΩΛΗΣΗ ΕΠΙΤΥΧΗΣ: https://solscan.io/tx/${txid}`);
+            return true;
+        } catch (e) {
+            console.error(`[LIVE] ❌ Σφάλμα Πώλησης: ${e.message}`);
+            return false;
         }
     }
 
